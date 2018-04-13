@@ -1,0 +1,262 @@
+#!/usr/bin/python2.7
+
+""" DAB Streamer for Enigma2 using tsniv2ni and modified ni2http """
+
+import os
+import sys
+import time
+import atexit
+import socket
+import signal
+
+from signal import SIGTERM
+ 
+from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
+from SocketServer import ThreadingMixIn
+from urllib import unquote
+from subprocess import Popen, PIPE
+
+HOST_NAME = ""
+PORT_NUMBER = 5237
+
+def Stream(s, parameters):
+    # construct the cmd
+    tool = parameters[0]
+    if tool == "tsniv2ni":
+	_, sref, pid, sid = parameters
+    	cmd = "wget http://127.0.0.1:8001/%s -q -O- | tsniv2ni %s | ni2out --sid %s" % (sref, pid, sid)
+    elif tool == "ts2na":
+        _, sref, pid, ofst, sid = parameters 
+        cmd = "wget http://127.0.0.1:8001/%s -q -O- | ts2na -p %s -s %s | na2ni | ni2out --sid %s" % (sref, pid, ofst, sid)
+    else:
+        raise Exception("Unkown tool %s..." % tool)
+    s.log_message("Using command %s", cmd)
+
+    # run the shell as a subprocess:
+    p = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE, shell=True, preexec_fn=os.setsid)
+
+    try:
+        Streamer(s.wfile, p.stdout)
+    except socket.error as se:
+        s.log_message("Got Socket Exception %s", se)
+    except Exception as e:
+        s.log_message("Got Exception: %s", e)
+    else:
+        s.wfile.close()
+    finally:
+        s.rfile.close()
+        os.killpg(os.getpgid(p.pid), signal.SIGTERM)  # Send the signal to all the process groups
+
+def Streamer(wfile, stdout):
+    # get the output
+    while True:
+        buff = stdout.read(4096)
+        if not buff:
+            break
+        wfile.write(buff)
+
+
+class StreamHandler(BaseHTTPRequestHandler):
+
+    def do_HEAD(s):
+        s.send_response(200)
+        s.send_header("Server", "DAB+ Streamer")
+        s.send_header("Content-type", "text/html")
+        s.end_headers()
+
+    def do_GET(s):
+        """Respond to a GET request."""
+        s.send_response(200)
+        s.send_header("Server", "DAB+ Streamer")
+        s.send_header("Content-type", "text/html")
+        s.end_headers()
+
+        try:
+            parameters = tuple(unquote(s.path[1:]).split("/"))
+            s.log_message("Parameters: %s", s.path)
+            Stream(s, parameters)
+        except Exception as e:
+            s.log_message("Exception occured when streaming %s", e)
+
+    # https://stackoverflow.com/questions/6063416/python-basehttpserver-how-do-i-catch-trap-broken-pipe-errors
+    def finish(self, *args, **kw):
+        try:
+            if not self.wfile.closed:
+                self.wfile.flush()
+                self.wfile.close()
+        except socket.error:
+            pass
+        self.rfile.close()
+
+    def handle(self):
+        try:
+            BaseHTTPRequestHandler.handle(self)
+        except socket.error:
+            pass
+
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    """Handle requests in a separate thread."""
+
+
+def start():
+    httpd = ThreadedHTTPServer((HOST_NAME, PORT_NUMBER), StreamHandler)
+    print time.asctime(), "Server Starts - %s:%s" % (HOST_NAME, PORT_NUMBER)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    httpd.server_close()
+    print time.asctime(), "Server Stops - %s:%s" % (HOST_NAME, PORT_NUMBER)
+
+
+class Daemon:
+	"""
+	A generic daemon class.
+	
+	Usage: subclass the Daemon class and override the run() method
+	"""
+	def __init__(self, pidfile, stdin="/dev/null", stdout="/dev/null", stderr="/dev/null"):
+		self.stdin = stdin
+		self.stdout = stdout
+		self.stderr = stderr
+		self.pidfile = pidfile
+	
+	def daemonize(self):
+		"""
+		do the UNIX double-fork magic, see Stevens' "Advanced 
+		Programming in the UNIX Environment" for details (ISBN 0201563177)
+		http://www.erlenstar.demon.co.uk/unix/faq_2.html#SEC16
+		"""
+		try: 
+			pid = os.fork() 
+			if pid > 0:
+				# exit first parent
+				sys.exit(0) 
+		except OSError, e: 
+			sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
+			sys.exit(1)
+	
+		# decouple from parent environment
+		os.chdir("/") 
+		os.setsid() 
+		os.umask(0) 
+	
+		# do second fork
+		try: 
+			pid = os.fork() 
+			if pid > 0:
+				# exit from second parent
+				sys.exit(0) 
+		except OSError, e: 
+			sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
+			sys.exit(1) 
+	
+		# redirect standard file descriptors
+		sys.stdout.flush()
+		sys.stderr.flush()
+		si = file(self.stdin, "r")
+		so = file(self.stdout, "a+")
+		se = file(self.stderr, "a+", 0)
+		os.dup2(si.fileno(), sys.stdin.fileno())
+		os.dup2(so.fileno(), sys.stdout.fileno())
+		os.dup2(se.fileno(), sys.stderr.fileno())
+	
+		# write pidfile
+		atexit.register(self.delpid)
+		pid = str(os.getpid())
+		file(self.pidfile,"w+").write("%s\n" % pid)
+	
+	def delpid(self):
+		os.remove(self.pidfile)
+
+	def start(self):
+		"""
+		Start the daemon
+		"""
+		# Check for a pidfile to see if the daemon already runs
+		try:
+			pf = file(self.pidfile,"r")
+			pid = int(pf.read().strip())
+			pf.close()
+		except IOError:
+			pid = None
+	
+		if pid:
+			message = "pidfile %s already exist. Daemon already running?\n"
+			sys.stderr.write(message % self.pidfile)
+			sys.exit(1)
+		
+		# Start the daemon
+		self.daemonize()
+		self.run()
+
+	def stop(self):
+		"""
+		Stop the daemon
+		"""
+		# Get the pid from the pidfile
+		try:
+			pf = file(self.pidfile,"r")
+			pid = int(pf.read().strip())
+			pf.close()
+		except IOError:
+			pid = None
+	
+		if not pid:
+			message = "pidfile %s does not exist. Daemon not running?\n"
+			sys.stderr.write(message % self.pidfile)
+			return # not an error in a restart
+
+		# Try killing the daemon process	
+		try:
+			while 1:
+				os.kill(pid, SIGTERM)
+				time.sleep(0.1)
+		except OSError, err:
+			err = str(err)
+			if err.find("No such process") > 0:
+				if os.path.exists(self.pidfile):
+					os.remove(self.pidfile)
+			else:
+				print str(err)
+				sys.exit(1)
+
+	def restart(self):
+		"""
+		Restart the daemon
+		"""
+		self.stop()
+		self.start()
+
+	def run(self):
+		"""
+		You should override this method when you subclass Daemon. It will be called after the process has been
+		daemonized by start() or restart().
+		"""
+
+
+class DabStreamerDaemon(Daemon):
+    def run(self):
+        start()
+
+
+if __name__ == "__main__":
+    daemon = DabStreamerDaemon("/var/run/dabstreamer.pid")
+    if len(sys.argv) == 2:
+        if "start" == sys.argv[1]:
+            daemon.start()
+        elif "stop" == sys.argv[1]:
+            daemon.stop()
+        elif "restart" == sys.argv[1]:
+            daemon.restart()
+        elif "manualstart" == sys.argv[1]:
+            start()
+        else:
+            print "Unknown command"
+            sys.exit(2)
+        sys.exit(0)
+    else:
+        print "usage: %s start|stop|restart|manualstart" % sys.argv[0]
+        sys.exit(2)
+
