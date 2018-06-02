@@ -28,6 +28,9 @@ def Stream(s, parameters):
     elif tool == "ts2na":
         _, sref, pid, ofst, sid = parameters 
         cmd = "wget http://127.0.0.1:8001/%s -q -O- | ts2na -p %s -s %s | na2ni | ni2out --sid %s" % (sref, pid, ofst, sid)
+    elif tool == "fedi2eti":
+        _, sref, pid, ip, port, sid = parameters
+        cmd = "wget http://127.0.0.1:8001/%s -q -O- | fedi2eti %s %s %s | ni2out --sid %s" % (sref, pid, ip, port, sid)
     else:
         raise Exception("Unkown tool %s..." % tool)
     s.log_message("Using command %s", cmd)
