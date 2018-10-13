@@ -31,9 +31,9 @@ def Stream(s, parameters):
     elif tool == "fedi2eti":
         _, sref, pid, ip, port, sid = parameters
         cmd = "wget http://127.0.0.1:8001/%s -q -O- | fedi2eti %s %s %s | ni2out --sid %s" % (sref, pid, ip, port, sid)
-    elif tool == "mpe2aac":
+    elif tool in  ("mpe2aac", "mpe2mpa"):
         _, sref, pid, ip, port = parameters
-        cmd = "wget http://127.0.0.1:8001/%s -q -O- | mpe2aac %s %s %s" % (sref, pid, ip, port)
+        cmd = "wget http://127.0.0.1:8001/%s -q -O- | %s %s %s %s" % (tool, sref, pid, ip, port)
     else:
         raise Exception("Unkown tool %s..." % tool)
     s.log_message("Using command %s", cmd)
