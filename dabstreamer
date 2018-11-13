@@ -8,6 +8,7 @@ import time
 import atexit
 import socket
 import signal
+import select
 
 from signal import SIGTERM
  
@@ -33,7 +34,10 @@ def Stream(s, parameters):
         cmd = "wget http://127.0.0.1:8001/%s -q -O- | fedi2eti %s %s %s | ni2out --sid %s" % (sref, pid, ip, port, sid)
     elif tool in  ("mpe2aac", "mpe2mpa"):
         _, sref, pid, ip, port = parameters
-        cmd = "wget http://127.0.0.1:8001/%s -q -O- | %s %s %s %s" % (tool, sref, pid, ip, port)
+        cmd = "wget http://127.0.0.1:8001/%s -q -O- | %s %s %s %s" % (sref, tool, pid, ip, port)
+    elif tool == "ott":
+        _, sref, pid, ip, port = parameters
+        cmd = "wget http://127.0.0.1:8001/%s -q -O- | %s -i - -o - -p %s -a %s -n %s 2>/dev/null" % (sref, "dvb-ip-mpe2ts.pl", pid, ip, port)
     else:
         raise Exception("Unkown tool %s..." % tool)
     s.log_message("Using command %s", cmd)
@@ -51,16 +55,21 @@ def Stream(s, parameters):
         s.wfile.close()
     finally:
         s.rfile.close()
+        p.terminate()
+        p.kill()
         os.killpg(os.getpgid(p.pid), signal.SIGTERM)  # Send the signal to all the process groups
 
 def Streamer(wfile, stdout):
     # get the output
     while True:
-        buff = stdout.read(4096)
-        if not buff:
-            break
-        wfile.write(buff)
-
+        reads, _, _ = select.select([stdout], [], [], 30)
+        if reads:
+            buff = stdout.read(4096)
+            if not buff:
+                break
+            wfile.write(buff)
+        else:
+            raise Exception('Timeout....')
 
 class StreamHandler(BaseHTTPRequestHandler):
 
