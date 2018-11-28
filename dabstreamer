@@ -37,7 +37,7 @@ def Stream(s, parameters):
         cmd = "wget http://127.0.0.1:8001/%s -q -O- | %s %s %s %s" % (sref, tool, pid, ip, port)
     elif tool == "ott":
         _, sref, pid, ip, port = parameters
-        cmd = "wget http://127.0.0.1:8001/%s -q -O- | %s -i - -o - -p %s -a %s -n %s 2>/dev/null" % (sref, "dvb-ip-mpe2ts.pl", pid, ip, port)
+        cmd = "wget http://127.0.0.1:8001/%s -q -O- | dvb-ip-mpe2ts -i - -o - -p %s -a %s -n %s 2>/dev/null" % (sref, pid, ip, port)
     else:
         raise Exception("Unkown tool %s..." % tool)
     s.log_message("Using command %s", cmd)
