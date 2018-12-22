@@ -27,8 +27,11 @@ def Stream(s, parameters):
 	_, sref, pid, sid = parameters
     	cmd = "wget http://127.0.0.1:8001/%s -q -O- | tsniv2ni %s | ni2out --sid %s" % (sref, pid, sid)
     elif tool == "ts2na":
-        _, sref, pid, ofst, sid = parameters 
+        _, sref, pid, ofst, sid = parameters
         cmd = "wget http://127.0.0.1:8001/%s -q -O- | ts2na -p %s -s %s | na2ni | ni2out --sid %s" % (sref, pid, ofst, sid)
+    elif tool == "ts2ni":
+        _, sref, pid, ofst, sid = parameters
+        cmd = "wget http://127.0.0.1:8001/%s -q -O- | ts2na -p %s -s %s | ni2out --sid %s" % (sref, pid, ofst, sid)
     elif tool == "fedi2eti":
         _, sref, pid, ip, port, sid = parameters
         cmd = "wget http://127.0.0.1:8001/%s -q -O- | fedi2eti %s %s %s | ni2out --sid %s" % (sref, pid, ip, port, sid)
