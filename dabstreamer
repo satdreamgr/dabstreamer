@@ -41,6 +41,9 @@ def Stream(s, parameters):
     elif tool == "ott":
         _, sref, pid, ip, port = parameters
         cmd = "wget http://127.0.0.1:8001/%s -q -O- | dvb-ip-mpe2ts -i - -o - -p %s -a %s -n %s 2>/dev/null" % (sref, pid, ip, port)
+    elif tool == "dab":
+        _, channel, gain, program = parameters
+        cmd = "dab-rtlsdr-sdgradio-pcm -C %s -G %s -S %s | ffmpeg -f s16le -channels 2 -r 48000 -i pipe:0 -f wav pipe:1" % (channel, gain, program)
     else:
         raise Exception("Unkown tool %s..." % tool)
     s.log_message("Using command %s", cmd)
